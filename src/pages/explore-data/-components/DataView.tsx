@@ -1,9 +1,15 @@
 import { useQuery } from '@tanstack/react-query';
 import Plot from 'react-plotly.js';
-import { useState } from 'react';
-import { ToggleButton, ToggleButtonGroup } from '@mui/material';
+import { useEffect, useState } from 'react';
+import {
+  FormControlLabel,
+  Switch,
+  ToggleButton,
+  ToggleButtonGroup,
+} from '@mui/material';
 import { SciDataGrid } from '../../../components/SciDataGrid';
 import { Box } from '@mui/system';
+import { quantile, ascending } from 'd3-array';
 
 async function getLaspData() {
   const response = await fetch(
@@ -15,6 +21,7 @@ async function getLaspData() {
 
 export function DataView() {
   const [view, setView] = useState('plot');
+  const [showOutliers, setShowOutliers] = useState(true);
 
   const {
     isPending,
@@ -26,6 +33,60 @@ export function DataView() {
     queryKey: ['laspData'],
     queryFn: getLaspData,
   });
+  const [tableData, setTableData] = useState<any[]>([]);
+  const [plotData, setPlotData] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (laspData) {
+      const unixTime: number[] = laspData.penticton_radio_flux.data.map(
+        (i: (string | number)[]) => i[0]
+      );
+
+      const observedFlux: number[] = laspData.penticton_radio_flux.data.map(
+        (i: (string | number)[]) => i[1]
+      );
+
+      const adjustedFlux: number[] = laspData.penticton_radio_flux.data.map(
+        (i: (string | number)[]) => i[2]
+      );
+
+      const newTableData = unixTime.map((time, index) => ({
+        id: time,
+        time: new Date(time).toLocaleString(),
+        observedFlux: observedFlux[index],
+        adjustedFlux: adjustedFlux[index],
+      }));
+
+      if (!showOutliers) {
+        // For simplicity, we'll calculate outliers based on observedFlux
+        const sortedFlux = observedFlux.slice().sort(ascending);
+        const q1 = quantile(sortedFlux, 0.25);
+        const q3 = quantile(sortedFlux, 0.75);
+        const iqr = q3 - q1;
+        const lowerBound = q1 - 1.5 * iqr;
+        const upperBound = q3 + 1.5 * iqr;
+
+        const filteredData = newTableData.filter(
+          (d) => d.observedFlux >= lowerBound && d.observedFlux <= upperBound
+        );
+        setTableData(filteredData);
+        setPlotData(
+          filteredData.map((d) => ({
+            ...d,
+            time: new Date(d.time),
+          }))
+        );
+      } else {
+        setTableData(newTableData);
+        setPlotData(
+          newTableData.map((d) => ({
+            ...d,
+            time: new Date(d.time),
+          }))
+        );
+      }
+    }
+  }, [laspData, showOutliers]);
 
   if (isPending) {
     return <div>Loading...</div>;
@@ -36,53 +97,55 @@ export function DataView() {
   }
 
   if (isSuccess) {
-    const unixTime: number[] = laspData.penticton_radio_flux.data.map(
-      (i: (string | number)[]) => i[0]
-    );
-
-    const observedFlux: number[] = laspData.penticton_radio_flux.data.map(
-      (i: (string | number)[]) => i[1]
-    );
-
-    const adjustedFlux: number[] = laspData.penticton_radio_flux.data.map(
-      (i: (string | number)[]) => i[2]
-    );
-
-    const tableData = unixTime.map((time, index) => ({
-      id: time,
-      time: new Date(time).toLocaleString(),
-      observedFlux: observedFlux[index],
-      adjustedFlux: adjustedFlux[index],
-    }));
-
     return (
       <Box sx={{ width: '100%', height: '100%' }}>
-        <ToggleButtonGroup
-          value={view}
-          exclusive
-          onChange={(_event, newView) => setView(newView)}
-          aria-label="data view"
+        <Box
+          sx={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+          }}
         >
-          <ToggleButton value="plot" aria-label="plot view">
-            Plot
-          </ToggleButton>
-          <ToggleButton value="table" aria-label="table view">
-            Table
-          </ToggleButton>
-        </ToggleButtonGroup>
+          <ToggleButtonGroup
+            value={view}
+            exclusive
+            onChange={(_event, newView) => {
+              if (newView !== null) {
+                setView(newView);
+              }
+            }}
+            aria-label="data view"
+          >
+            <ToggleButton value="plot" aria-label="plot view">
+              Plot
+            </ToggleButton>
+            <ToggleButton value="table" aria-label="table view">
+              Table
+            </ToggleButton>
+          </ToggleButtonGroup>
+          <FormControlLabel
+            control={
+              <Switch
+                checked={!showOutliers}
+                onChange={(e) => setShowOutliers(!e.target.checked)}
+              />
+            }
+            label="Remove Outliers"
+          />
+        </Box>
         {view === 'plot' ? (
           <Plot
             data={[
               {
-                x: unixTime.map((i) => new Date(i)),
-                y: observedFlux,
+                x: plotData.map((d) => d.time),
+                y: plotData.map((d) => d.observedFlux),
                 type: 'scatter',
                 mode: 'lines',
                 name: 'Observed Flux',
               },
               {
-                x: unixTime.map((i) => new Date(i)),
-                y: adjustedFlux,
+                x: plotData.map((d) => d.time),
+                y: plotData.map((d) => d.adjustedFlux),
                 type: 'scatter',
                 mode: 'lines',
                 name: 'Adjusted Flux',
@@ -107,8 +170,18 @@ export function DataView() {
             rows={tableData}
             columns={[
               { field: 'time', headerName: 'Time', flex: 1 },
-              { field: 'observedFlux', headerName: 'Observed Flux', flex: 1 },
-              { field: 'adjustedFlux', headerName: 'Adjusted Flux', flex: 1 },
+              {
+                field: 'observedFlux',
+                headerName: 'Observed Flux',
+                flex: 1,
+                type: 'number',
+              },
+              {
+                field: 'adjustedFlux',
+                headerName: 'Adjusted Flux',
+                flex: 1,
+                type: 'number',
+              },
             ]}
           />
         )}
