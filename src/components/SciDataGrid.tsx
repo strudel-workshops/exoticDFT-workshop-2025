@@ -143,8 +143,9 @@ export const SciDataGrid: React.FC<SciDataGridProps> = ({
       rows={rows}
       columns={getGridColumns(columns)}
       disableColumnSelector
+      pageSizeOptions={[5, 10, 25, 100]}
       initialState={{
-        pagination: { paginationModel: { page: 0, pageSize: 5 } },
+        pagination: { paginationModel: { page: 0, pageSize: 10 } },
       }}
       sx={{
         '& .MuiDataGrid-columnHeaderTitle': {
