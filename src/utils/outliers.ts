@@ -63,3 +63,20 @@ export const movingAverageOutlierRemover = (
     return Math.abs(value - avg) <= threshold * stdDev;
   });
 };
+
+export function movingAverage(data: any[], key: string, window: number) {
+  if (window < 1) {
+    return [];
+  }
+
+  const movingAverages = data.map((_d, i, arr) => {
+    if (i < window - 1) {
+      return null;
+    }
+    const windowSlice = arr.slice(i - window + 1, i + 1);
+    const sum = windowSlice.reduce((acc, val) => acc + val[key], 0);
+    return sum / window;
+  });
+
+  return movingAverages;
+}
