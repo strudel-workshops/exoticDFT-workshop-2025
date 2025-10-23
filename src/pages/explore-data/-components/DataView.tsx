@@ -2,14 +2,21 @@ import { useQuery } from '@tanstack/react-query';
 import Plot from 'react-plotly.js';
 import { useEffect, useState } from 'react';
 import {
+  FormControl,
   FormControlLabel,
+  InputLabel,
+  MenuItem,
+  Select,
   Switch,
   ToggleButton,
   ToggleButtonGroup,
 } from '@mui/material';
 import { SciDataGrid } from '../../../components/SciDataGrid';
 import { Box } from '@mui/system';
-import { quantile, ascending } from 'd3-array';
+import {
+  iqrOutlierRemover,
+  movingAverageOutlierRemover,
+} from '../../../utils/outliers';
 
 async function getLaspData() {
   const response = await fetch(
@@ -22,6 +29,9 @@ async function getLaspData() {
 export function DataView() {
   const [view, setView] = useState('plot');
   const [showOutliers, setShowOutliers] = useState(true);
+  const [outlierModel, setOutlierModel] = useState<'iqr' | 'movingAverage'>(
+    'iqr'
+  );
 
   const {
     isPending,
@@ -58,17 +68,16 @@ export function DataView() {
       }));
 
       if (!showOutliers) {
-        // For simplicity, we'll calculate outliers based on observedFlux
-        const sortedFlux = observedFlux.slice().sort(ascending);
-        const q1 = quantile(sortedFlux, 0.25);
-        const q3 = quantile(sortedFlux, 0.75);
-        const iqr = q3 - q1;
-        const lowerBound = q1 - 1.5 * iqr;
-        const upperBound = q3 + 1.5 * iqr;
+        let filteredData;
+        if (outlierModel === 'iqr') {
+          filteredData = iqrOutlierRemover(newTableData, 'observedFlux');
+        } else {
+          filteredData = movingAverageOutlierRemover(
+            newTableData,
+            'observedFlux'
+          );
+        }
 
-        const filteredData = newTableData.filter(
-          (d) => d.observedFlux >= lowerBound && d.observedFlux <= upperBound
-        );
         setTableData(filteredData);
         setPlotData(
           filteredData.map((d) => ({
@@ -86,7 +95,7 @@ export function DataView() {
         );
       }
     }
-  }, [laspData, showOutliers]);
+  }, [laspData, showOutliers, outlierModel]);
 
   if (isPending) {
     return <div>Loading...</div>;
@@ -123,15 +132,33 @@ export function DataView() {
               Table
             </ToggleButton>
           </ToggleButtonGroup>
-          <FormControlLabel
-            control={
-              <Switch
-                checked={!showOutliers}
-                onChange={(e) => setShowOutliers(!e.target.checked)}
-              />
-            }
-            label="Remove Outliers"
-          />
+          <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={!showOutliers}
+                  onChange={(e) => setShowOutliers(!e.target.checked)}
+                />
+              }
+              label="Remove Outliers"
+            />
+            <FormControl sx={{ m: 1, minWidth: 120 }} size="small">
+              <InputLabel id="outlier-model-select-label">Model</InputLabel>
+              <Select
+                labelId="outlier-model-select-label"
+                id="outlier-model-select"
+                value={outlierModel}
+                label="Model"
+                onChange={(e) =>
+                  setOutlierModel(e.target.value as 'iqr' | 'movingAverage')
+                }
+                disabled={showOutliers}
+              >
+                <MenuItem value="iqr">IQR</MenuItem>
+                <MenuItem value="movingAverage">Moving Average</MenuItem>
+              </Select>
+            </FormControl>
+          </Box>
         </Box>
         {view === 'plot' ? (
           <Plot
